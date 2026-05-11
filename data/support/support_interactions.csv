@@ -1,0 +1,20 @@
+id,ticket_id,agent_id,timestamp,notes
+301,201,1,2026-05-05 00:00:00,Asked customer for phone model and OS version
+302,201,1,2026-05-06 00:00:00,"Customer provided details, sent troubleshooting steps"
+303,202,2,2026-05-04 00:00:00,"Logged refund request, awaiting damage photos"
+304,202,2,2026-05-07 00:00:00,"Photos received, refund approved and processed"
+305,203,4,2026-05-03 00:00:00,"Investigating with courier, opened claim"
+306,203,4,2026-05-06 12:00:00,"Courier confirmed package missing, replacement dispatched"
+307,204,6,2026-04-28 00:00:00,"Return label sent, replacement shipped"
+308,204,6,2026-05-01 00:00:00,"Customer confirmed receipt, ticket closed"
+309,205,1,2026-05-05 12:00:00,Asked customer to record video of noise
+310,206,3,2026-05-04 16:00:00,"Manually triggered password reset, sent secure link"
+311,207,1,2026-05-06 00:00:00,"Diagnosed faulty unit, arranging replacement"
+312,208,2,2026-04-25 12:00:00,"Explained return policy, customer satisfied"
+313,209,5,2026-05-07 12:00:00,"Confirmed double charge, refund initiated"
+314,210,4,2026-04-21 08:00:00,Address updated successfully
+315,211,3,2026-05-04 00:00:00,"Running diagnostics, requested battery health screenshot"
+316,212,3,2026-05-07 16:00:00,"Verified identity, unlocked account"
+317,213,2,2026-05-07 04:00:00,VAT invoice request being processed
+318,214,6,2026-04-17 04:00:00,Replacement grip tape sent free of charge
+319,215,1,2026-05-06 08:00:00,"Investigating, asked for sample audio recording"

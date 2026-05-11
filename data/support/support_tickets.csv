@@ -1,0 +1,16 @@
+id,title,description,customer_id,status,priority
+201,Headphones won't pair with phone,Bluetooth pairing fails repeatedly with my new phone,1,open,high
+202,Refund for damaged smartphone,"Phone arrived with cracked screen, requesting refund",2,open,high
+203,Order never arrived,Tracking shows delivered but I have nothing,3,in_progress,high
+204,Wrong size t-shirt,"Ordered medium, received small",4,closed,low
+205,Coffee machine making strange noise,Loud grinding sound when brewing,5,open,medium
+206,Cannot log into account,Password reset email not arriving,6,in_progress,medium
+207,Air fryer stopped working,Unit will not turn on after 2 weeks,7,open,high
+208,Question about return policy,Need clarification on 30-day window,8,closed,low
+209,Subscription charged twice,Double charge on monthly plan,9,open,high
+210,Shipping address change request,Need to update delivery address for pending order,10,closed,medium
+211,Laptop battery draining fast,"Battery only lasts 2 hours, expected 8",1,in_progress,medium
+212,Account locked,"Multiple failed login attempts, account locked out",14,open,high
+213,Billing query - VAT invoice needed,Need VAT-compliant invoice for company purchase,15,open,low
+214,Tennis racket grip peeling,Grip tape coming off after light use,6,closed,low
+215,Speaker volume distorted,Crackling sound at high volume,4,open,medium

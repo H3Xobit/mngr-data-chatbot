@@ -1,0 +1,13 @@
+id,name,email,contact_info,account_status
+1,Alice Chen,alice.chen@example.com,+44 20 7946 0001,active
+2,Ben Okafor,ben.okafor@example.com,+44 161 555 0002,active
+3,Carla Rossi,carla.rossi@example.com,+39 02 555 0003,active
+4,Dmitri Volkov,dmitri.volkov@example.com,+49 30 555 0004,active
+5,Elena Marquez,elena.marquez@example.com,+34 91 555 0005,suspended
+6,Farah Haddad,farah.haddad@example.com,+971 4 555 0006,active
+7,George Smith,george.smith@example.com,+44 20 7946 0007,active
+8,Hina Patel,hina.patel@example.com,+91 22 555 0008,active
+9,Ivan Petrov,ivan.petrov@example.com,+7 495 555 0009,active
+10,Julia Becker,julia.becker@example.com,+43 1 555 0010,active
+14,Nadia Khoury,nadia.khoury@example.com,+961 1 555 0014,active
+15,Oscar Nilsen,oscar.nilsen@example.com,+47 22 555 0015,active
