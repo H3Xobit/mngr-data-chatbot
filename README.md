@@ -153,10 +153,15 @@ cp .env.example .env
 python -m db.seed
 
 # Boot the server.
-uvicorn main:app --reload --port 8001
+uvicorn main:app --reload --port 8500
 ```
 
-Open <http://localhost:8001> and start chatting.
+Open <http://localhost:8500> and start chatting.
+
+> Port 8500 was chosen specifically to avoid collisions with anything you
+> might already have running (8000/8001 are common defaults for other dev
+> servers, including the Calendar chatbot in Task 1). If you see the wrong
+> UI when you open the link, see "Troubleshooting" below.
 
 ### Reset to a clean state
 
@@ -191,7 +196,7 @@ Seed-on-demand is wired through `tests/conftest.py::seeded_dbs`, so
 
 ## 5. API documentation
 
-FastAPI generates an interactive doc at <http://localhost:8001/docs> once
+FastAPI generates an interactive doc at <http://localhost:8500/docs> once
 the server is up. The endpoints are intentionally minimal:
 
 ### `POST /chat`
@@ -433,5 +438,42 @@ mngr-data-chatbot/
    the seed manifest, and the new domain is attached and available to
    the LLM by name.
 8. **Evaluation harness.** Recorded conversations + scripted DB
-   snapshots → regression-test LLM behaviour against schema or prompt
+   snapshots -> regression-test LLM behaviour against schema or prompt
    changes.
+
+---
+
+## 11. Troubleshooting
+
+### I opened the link and the Calendar chatbot appeared instead
+
+Almost always one of these three things:
+
+1. **Stale process on the same port.** Run `lsof -i :8500` (Mac/Linux/WSL)
+   or `netstat -ano | findstr :8500` (Windows). If something else owns
+   the port, kill it or change `PORT` in `.env`.
+2. **Browser cache.** Your browser may have a cached copy of a
+   previous app served on the same host:port. Hard-refresh
+   (Ctrl+Shift+R), or open <http://127.0.0.1:8500/> in an incognito
+   window. `127.0.0.1` instead of `localhost` also dodges some DNS-level
+   caching.
+3. **Windows port forwarding (WSL only).** Run
+   `netsh interface portproxy show all` in PowerShell. If you see a
+   stale rule for `8500` pointing at the wrong WSL IP, delete it with
+   `netsh interface portproxy delete v4tov4 listenport=8500`.
+
+The server logs to `logs/app.log`. If the page renders but the chat
+returns "language backend down", check the Groq key in `.env`.
+
+### `python -m db.seed` fails with "no such file" for a CSV
+
+You're running from somewhere other than the project root. `cd` into
+`mngr-data-chatbot/` first. The script resolves CSV paths relative to
+the project root, not the current working directory.
+
+### Tests hang on first run
+
+`pytest` calls `db/seed.py` once at the start of the test session
+(via `tests/conftest.py::seeded_dbs`). The script is fast (~200ms) but
+if it can't write to the project root (read-only mount, etc.) it will
+hang waiting on filesystem. Make sure the repo directory is writable.

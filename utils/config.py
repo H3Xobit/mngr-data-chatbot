@@ -23,7 +23,7 @@ class Settings(BaseSettings):
         default="dev-only-please-change", alias="SESSION_SECRET"
     )
     host: str = Field(default="0.0.0.0", alias="HOST")
-    port: int = Field(default=8001, alias="PORT")
+    port: int = Field(default=8500, alias="PORT")
 
     ecommerce_db: str = Field(default="ecommerce.db", alias="ECOMMERCE_DB")
     support_db: str = Field(default="support.db", alias="SUPPORT_DB")

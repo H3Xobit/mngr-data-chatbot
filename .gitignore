@@ -8,6 +8,14 @@
 *.key
 
 # ============================================================
+# Personal / interview prep - never publish these
+# ============================================================
+INTERVIEW_NOTES.md
+INTERVIEW_NOTES.*
+NOTES_PRIVATE.md
+*.private.md
+
+# ============================================================
 # Generated databases (recreated by `python -m db.seed`)
 # ============================================================
 *.db
