@@ -17,9 +17,8 @@ even a bypassed SELECT validator can't mutate anything.
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
-from pathlib import Path
-from typing import Iterator
 
 from utils.config import get_settings
 from utils.logger import get_logger

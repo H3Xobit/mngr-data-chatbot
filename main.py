@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, EmailStr
 from starlette.middleware.sessions import SessionMiddleware
 
 from models.schemas import (
@@ -81,24 +82,62 @@ async def favicon() -> Response:
 # ---------- Chat --------------------------------------------------------------
 
 
+class PersonaRequest(BaseModel):
+    """Set the demo 'current user' (a customer email) for row-level scoping."""
+
+    email: EmailStr | None = None
+
+
+@app.get("/auth/persona")
+async def get_persona(request: Request) -> dict[str, str | None]:
+    """Return the demo 'current user' email if one is set on this session."""
+    return {"email": request.session.get("persona_email")}
+
+
+@app.post("/auth/persona")
+async def set_persona(request: Request, body: PersonaRequest) -> dict[str, str | None]:
+    """Set / clear the demo persona.
+
+    Demo only: a real RLS layer would derive the user from an authenticated
+    session (OAuth, SAML, etc.) and enforce the filter at the SQL execution
+    layer too, not just via the system prompt. See INTERVIEW notes.
+    """
+    sid = _session_id(request)
+    if body.email is None:
+        request.session.pop("persona_email", None)
+        _CONVERSATIONS.pop(sid, None)
+        log.info("/auth/persona: cleared persona for session=%s", sid[:8])
+    else:
+        request.session["persona_email"] = str(body.email)
+        # Force a new conversation so the new persona's RLS prompt takes effect.
+        _CONVERSATIONS.pop(sid, None)
+        log.info(
+            "/auth/persona: set persona=%s for session=%s", body.email, sid[:8]
+        )
+    return {"email": request.session.get("persona_email")}
+
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: Request, body: ChatRequest) -> ChatResponse:
     sid = _session_id(request)
-    convo = _CONVERSATIONS.get(sid) or chat_service.new_conversation()
+    persona_email = request.session.get("persona_email")
+    convo = _CONVERSATIONS.get(sid) or chat_service.new_conversation(persona_email)
     log.info(
-        "/chat: session=%s convo_len=%d msg=%r",
+        "/chat: session=%s convo_len=%d persona=%s msg=%r",
         sid[:8],
         len(convo),
+        persona_email or "-",
         body.message[:80],
     )
     try:
         result = chat_service.handle_user_message(
             conversation=convo,
             user_message=body.message,
+            current_user_email=persona_email,
         )
     except RuntimeError as exc:
         log.error("Chat error: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     _CONVERSATIONS[sid] = result.conversation
     return ChatResponse(reply=result.reply, queries=result.queries)
@@ -118,10 +157,12 @@ async def chat_reset(request: Request) -> dict[str, bool]:
 async def query(body: QueryRequest) -> QueryResponse:
     try:
         result = query_service.run_query(body.sql, max_rows=body.max_rows)
+    except query_service.QueryTooExpensiveError as exc:
+        raise HTTPException(status_code=400, detail=f"Query too expensive: {exc}") from exc
     except query_service.UnsafeQueryError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return QueryResponse(**result.to_dict())
 
 

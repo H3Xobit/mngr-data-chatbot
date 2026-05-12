@@ -6,7 +6,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-
 # ---------- Chat ----------
 
 
@@ -15,11 +14,17 @@ class ChatRequest(BaseModel):
 
 
 class QueryEcho(BaseModel):
-    """The SQL the LLM ran on this turn (echoed back for transparency)."""
+    """The SQL the LLM ran on this turn (echoed back for transparency).
+
+    Now also carries the result rows so the frontend can render charts and
+    let the user export to CSV/JSON without re-running the query.
+    """
 
     sql: str
     row_count: int
     truncated: bool
+    columns: list[str] = Field(default_factory=list)
+    rows: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ChatResponse(BaseModel):

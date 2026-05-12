@@ -8,6 +8,29 @@ in a collapsible panel below every reply.
 > **Stack:** FastAPI · Groq `llama-3.3-70b-versatile` (tool-calling) ·
 > SQLite (read-only) · vanilla HTML/CSS/JS
 
+[![CI](https://github.com/H3Xobit/mngr-data-chatbot/actions/workflows/ci.yml/badge.svg)](https://github.com/H3Xobit/mngr-data-chatbot/actions/workflows/ci.yml)
+
+## Highlights at a glance
+
+- **82 unit tests, two Python versions (3.11 & 3.12), green CI on every push.**
+  CI seeds the SQLite databases from the committed CSVs before each run.
+- **Four-layer SQL defence:** syntactic whitelist + `EXPLAIN QUERY PLAN`
+  cost guard + connection-level `PRAGMA query_only` + 200-row cap, with a
+  regression test for **every** category of disallowed SQL (`DROP`, `ATTACH`,
+  `PRAGMA`, `load_extension`, statement stacking, comment-hiding tricks, ...).
+- **EXPLAIN QUERY PLAN cost guard.** Before executing, the planner is
+  inspected; if a query would scan a 50k+ row table without an index or
+  reference multiple tables without a join condition (a cartesian product),
+  it's refused with an explicit hint for the LLM to narrow the query.
+- **Result charts inline.** When a result has one categorical column and at
+  least one numeric column (and <= 40 rows), the UI renders a Chart.js bar
+  chart underneath the SQL audit panel. No build step.
+- **CSV / JSON export & "Copy SQL"** on every result, plus a per-session
+  **query history drawer** (LLM question + executed SQL, click to replay).
+- **Row-level access control demo.** Set a "persona" email in the UI and the
+  LLM is constrained by its system prompt to only answer about that user's
+  data - illustrates how a real RLS layer would slot in.
+
 ---
 
 ## 1. Architecture overview
@@ -62,22 +85,31 @@ both systems with potentially different internal IDs.
 Tool-calling gives us the LLM's reasoning ability for arbitrary questions
 **and** server-side control over what actually hits the database.
 
-### Defense-in-depth: three layers between the LLM and the data
+### Defense-in-depth: four layers between the LLM and the data
 
 1. **Syntactic whitelist.** The validator rejects anything that isn't a
    single SELECT (or `WITH ... SELECT`). Forbidden keywords (`INSERT`,
    `UPDATE`, `DELETE`, `REPLACE`, `DROP`, `CREATE`, `ALTER`, `ATTACH`,
    `DETACH`, `PRAGMA`, `VACUUM`, `REINDEX`, `TRUNCATE`) are blocked as
-   whole tokens. Statement stacking via `;` is rejected.
-2. **Connection-level read-only.** The main DB is an empty in-memory
+   whole tokens. Dangerous function calls (`load_extension`) are blocked
+   too. Statement stacking via `;` is rejected.
+2. **EXPLAIN QUERY PLAN cost guard.** Before executing, SQLite's planner
+   is inspected. A `SCAN` against a table containing more than 50,000
+   rows raises `QueryTooExpensiveError`. A query that names more than 2
+   tables without any indexed join/search step is treated as a cartesian-
+   product risk and refused with an explicit hint for the LLM.
+3. **Connection-level read-only.** The main DB is an empty in-memory
    SQLite; the real DBs are attached, then `PRAGMA query_only = ON` is
    set. Even if the validator missed something, the connection refuses
-   to write.
-3. **Row cap.** Every query is capped at 200 rows by default, with
+   to write. Python's `sqlite3.enable_load_extension` is off (default).
+4. **Row cap.** Every query is capped at 200 rows by default, with
    `truncated: true` surfaced back to the LLM so it can say "showing
    first N" rather than crash on huge result sets.
 
 There is a regression test for **every** category of disallowed SQL.
+The four canonical example queries from the brief have an explicit test
+that asserts they are NOT rejected by the cost guard - a future tweak
+that breaks them will fail CI immediately.
 
 ### Why Groq
 
@@ -181,16 +213,20 @@ and rebuilds them from scratch every time.
 pytest -v
 ```
 
-**40 tests in ~0.2s, no network required**:
+**82 tests in <1 second, no network required**:
 
 | Suite | What it covers |
 |---|---|
-| `tests/test_query_service.py` | Validator accepts every legal `SELECT` and rejects 14 hostile inputs; live read-only execution against the seeded DBs; row truncation; cross-domain joins; the brief's example query patterns. |
+| `tests/test_query_service.py` | Validator accepts every legal `SELECT` and rejects hostile inputs; live read-only execution against the seeded DBs; row truncation; cross-domain joins; the brief's example query patterns. |
 | `tests/test_seed.py` | Exact row counts per table in both DBs, FK integrity, and the cross-domain overlap precondition. |
 | `tests/test_chat_tools.py` | The chat-service tool dispatcher: `execute_sql` returns rows, rejects writes, surfaces SQL errors as friendly messages; `describe_schema` returns both domains; unknown tools handled. |
+| `tests/test_cost_guard.py` | The EXPLAIN QUERY PLAN cost guard: full-scan-over-big-table flagged; cartesian product detected; indexed lookup passes; the four brief queries are NOT flagged; guard can be disabled for internal callers. |
+| `tests/test_sql_adversarial.py` | 20+ attack vectors blocked by the validator (drop / delete / update / replace / truncate / create / alter / attach / detach / pragma / vacuum / reindex / statement-stacking / comment-hiding / `load_extension` / empty / whitespace-only / WITH-non-select). Plus connection-level checks that `PRAGMA query_only` and `enable_load_extension=off` would still block the write. |
+| `tests/test_persona.py` | The row-level access-control demo: `/auth/persona` GET/POST, invalid-email rejected, system prompt picks up the email, conversation state is wiped on persona change. |
 
 Seed-on-demand is wired through `tests/conftest.py::seeded_dbs`, so
 `pytest` always runs against a fresh, deterministic database.
+CI runs the suite on both Python 3.11 and 3.12.
 
 ---
 
@@ -242,6 +278,21 @@ POST /query
 
 Introspected schema (every table + column + row count + domain). Same
 data the LLM gets in its system prompt.
+
+### `GET /auth/persona` and `POST /auth/persona`
+
+Set or clear the demo "current user" for **row-level access control**.
+
+```http
+POST /auth/persona
+{ "email": "alice.chen@example.com" }
+```
+
+When a persona is set, the LLM's system prompt is rewritten to constrain
+all queries to that user's rows. This is a demo of how a real RLS layer
+would slot in - in production you would *also* enforce the filter at the
+SQL execution layer (e.g. wrap the generated SQL in a CTE that filters by
+email), not just via the prompt.
 
 ### `GET /healthz`
 
@@ -344,33 +395,43 @@ rejected `DROP`, and even if the validator had been bypassed,
 
 ```
 mngr-data-chatbot/
-├── main.py                       FastAPI entrypoint
+├── .github/
+│   └── workflows/ci.yml          Seed + pytest + ruff on every push (3.11 & 3.12).
+├── main.py                       FastAPI entrypoint, persona endpoint,
+│                                 cost-guard wiring.
 ├── db/
 │   ├── schema/
-│   │   ├── ecommerce.sql         DDL for the e-commerce DB
-│   │   └── support.sql           DDL for the customer-support DB
-│   └── seed.py                   reset + load CSVs into both DBs
+│   │   ├── ecommerce.sql         DDL for the e-commerce DB.
+│   │   └── support.sql           DDL for the customer-support DB.
+│   └── seed.py                   reset + load CSVs into both DBs.
 ├── data/
-│   ├── ecommerce/                4 CSVs from the task fixture
-│   └── support/                  4 CSVs from the task fixture
+│   ├── ecommerce/                4 CSVs from the task fixture.
+│   └── support/                  4 CSVs from the task fixture.
 ├── services/
-│   ├── db_service.py             read-only conns with ATTACH
-│   ├── schema_service.py         introspect schemas for the LLM
-│   ├── query_service.py          SELECT validator + executor
-│   └── chat_service.py           Groq + tool-calling
+│   ├── db_service.py             read-only conns with ATTACH + query_only.
+│   ├── schema_service.py         introspect schemas for the LLM.
+│   ├── query_service.py          SELECT validator, EXPLAIN cost guard,
+│   │                             executor.
+│   └── chat_service.py           Groq + tool-calling, optional RLS prompt.
 ├── models/
-│   └── schemas.py                Pydantic request/response models
+│   └── schemas.py                Pydantic models (QueryEcho now carries rows).
 ├── utils/
-│   ├── config.py                 pydantic-settings env loader
-│   └── logger.py                 rotating file + stdout logger
+│   ├── config.py                 pydantic-settings env loader.
+│   └── logger.py                 rotating file + stdout logger.
 ├── static/
-│   └── index.html                single-page chat UI
+│   └── index.html                Chat UI: charts (Chart.js), CSV/JSON
+│                                 export, query history drawer, persona
+│                                 picker.
 ├── tests/
-│   ├── conftest.py               auto-seeds DBs once per session
-│   ├── test_query_service.py     validator + executor (24 tests)
-│   ├── test_seed.py              row counts + FK integrity (5 tests)
-│   └── test_chat_tools.py        tool dispatcher (11 tests)
-├── .env.example                  env var template
+│   ├── conftest.py               auto-seeds DBs once per session.
+│   ├── test_query_service.py     validator + executor.
+│   ├── test_seed.py              row counts + FK integrity.
+│   ├── test_chat_tools.py        tool dispatcher.
+│   ├── test_cost_guard.py        EXPLAIN QUERY PLAN cost guard.
+│   ├── test_sql_adversarial.py   20+ attack vectors + connection-level checks.
+│   └── test_persona.py           row-level access-control demo.
+├── pyproject.toml                Ruff + pytest config.
+├── .env.example                  env var template.
 ├── requirements.txt
 └── README.md
 ```

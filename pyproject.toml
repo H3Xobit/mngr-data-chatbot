@@ -1,0 +1,34 @@
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = [".venv", "logs", "*.db"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific
+    "S",    # flake8-bandit (security)
+]
+ignore = [
+    "E501",
+    "B008",
+    "SIM117",
+    "S101",  # asserts are OK in this project
+    "S608",  # the validator + PRAGMA query_only is our SQL injection defence (see services/query_service.py)
+    "S104",  # 0.0.0.0 bind is intentional for the dev server, documented in README
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011", "S105", "S106", "S608"]
+"db/seed.py" = ["S608"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra -q"

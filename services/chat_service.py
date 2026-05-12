@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import UTC
 from typing import Any
 
 from groq import APIError, BadRequestError, Groq
@@ -68,12 +69,30 @@ Rules:
   collapsible panel, so the user can audit your work.
 - Be concise. Two to four sentences per answer is ideal.
 
+{rls_block}
 Today's date is provided in each user message for relative-time queries.
 """
 
 
-def build_system_prompt() -> str:
-    return SYSTEM_PROMPT_TEMPLATE.format(schema_block=schema_service.schema_summary_for_prompt())
+_RLS_PROMPT = """ROW-LEVEL ACCESS CONTROL (in effect for this session):
+- You are answering on behalf of the customer with email: **{email}**.
+- Every query that touches `ecommerce.customers`, `ecommerce.orders`,
+  `support.customers`, or `support.tickets` MUST be constrained to that
+  email. Use either:
+    WHERE ecommerce.customers.email = '{email}'
+  or the equivalent join filter on the support side.
+- NEVER return rows belonging to any other customer.
+- If the user asks "show me all customers" or any aggregate that would
+  reveal other users' data, refuse politely and explain you are scoped
+  to their own account.
+
+"""
+
+
+def build_system_prompt(current_user_email: str | None = None) -> str:
+    schema = schema_service.schema_summary_for_prompt()
+    rls = _RLS_PROMPT.format(email=current_user_email) if current_user_email else ""
+    return SYSTEM_PROMPT_TEMPLATE.format(schema_block=schema, rls_block=rls)
 
 
 TOOLS: list[dict[str, Any]] = [
@@ -126,8 +145,8 @@ class ChatTurnResult:
     queries: list[QueryEcho] = field(default_factory=list)
 
 
-def new_conversation() -> list[dict[str, Any]]:
-    return [{"role": "system", "content": build_system_prompt()}]
+def new_conversation(current_user_email: str | None = None) -> list[dict[str, Any]]:
+    return [{"role": "system", "content": build_system_prompt(current_user_email)}]
 
 
 # ---------- Tool execution ----------------------------------------------------
@@ -143,6 +162,21 @@ def _execute_tool_call(
             return ({"error": "missing_query", "message": "No SQL provided."}, None)
         try:
             result = query_service.run_query(sql)
+        except query_service.QueryTooExpensiveError as exc:
+            log.warning("execute_sql cost-guarded: %s", exc)
+            return (
+                {
+                    "error": "query_too_expensive",
+                    "message": str(exc),
+                    "hint": (
+                        "The query would do a very wide scan or cartesian "
+                        "product. Narrow it with a WHERE filter or add an "
+                        "explicit JOIN condition between the tables, then "
+                        "try again."
+                    ),
+                },
+                None,
+            )
         except query_service.UnsafeQueryError as exc:
             log.warning("execute_sql rejected: %s", exc)
             return (
@@ -157,7 +191,13 @@ def _execute_tool_call(
                 },
                 None,
             )
-        echo = QueryEcho(sql=sql, row_count=result.row_count, truncated=result.truncated)
+        echo = QueryEcho(
+            sql=sql,
+            row_count=result.row_count,
+            truncated=result.truncated,
+            columns=result.columns,
+            rows=result.rows,
+        )
         return (result.to_dict(), echo)
 
     if name == "describe_schema":
@@ -180,16 +220,27 @@ def handle_user_message(
     conversation: list[dict[str, Any]],
     user_message: str,
     max_tool_iterations: int = 4,
+    current_user_email: str | None = None,
 ) -> ChatTurnResult:
-    """Drive one user turn through Groq, executing any tool calls it makes."""
-    from datetime import datetime, timezone
+    """Drive one user turn through Groq, executing any tool calls it makes.
+
+    If ``current_user_email`` is given, the system prompt is configured to
+    constrain the LLM to that user's rows. This is a demo of how a real
+    row-level access-control layer would slot in - in production you would
+    *also* enforce the filter post-LLM (e.g. wrap the generated SQL in a
+    CTE that filters by email), but the prompt-level enforcement here is
+    a useful starting point.
+    """
+    from datetime import datetime
 
     s = get_settings()
     client = _client()
 
-    conversation = list(conversation) if conversation else new_conversation()
+    conversation = (
+        list(conversation) if conversation else new_conversation(current_user_email)
+    )
     today_hint = (
-        f"(Today is {datetime.now(timezone.utc).strftime('%A %d %B %Y')} (UTC). "
+        f"(Today is {datetime.now(UTC).strftime('%A %d %B %Y')} (UTC). "
         "Use this for relative-time queries like 'in the last month'.)"
     )
     conversation.append(

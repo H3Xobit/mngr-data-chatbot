@@ -52,6 +52,17 @@
       header h1 { font-size: 16px; margin: 0; font-weight: 600; }
       header .sub { color: var(--muted); font-size: 12.5px; }
       header .spacer { flex: 1; }
+      .pill {
+        font-size: 12px; padding: 6px 10px; border-radius: 999px;
+        border: 1px solid var(--border); background: var(--panel);
+        color: var(--muted);
+        display: inline-flex; align-items: center; gap: 6px;
+      }
+      .pill .dot {
+        width: 7px; height: 7px; border-radius: 50%;
+        background: var(--accent);
+      }
+      .pill.ok .dot { background: var(--ok); }
       .btn {
         appearance: none; border: 1px solid var(--border);
         background: var(--panel); color: var(--text);
@@ -132,6 +143,82 @@
         color: var(--muted); font-size: 11.5px;
         margin-top: 4px;
       }
+      .sql-panel .actions {
+        display: flex; gap: 8px; margin-top: 8px;
+        flex-wrap: wrap;
+      }
+      .sql-panel .actions button {
+        appearance: none; font-size: 11.5px; padding: 4px 10px;
+        border-radius: 999px; border: 1px solid var(--border);
+        background: var(--panel-2); color: var(--text); cursor: pointer;
+      }
+      .sql-panel .actions button:hover { border-color: var(--accent); color: var(--accent); }
+      .chart-wrap {
+        margin-top: 10px; padding: 8px;
+        background: #0d0e13; border: 1px solid var(--border);
+        border-radius: 8px;
+        max-width: 100%;
+      }
+      .chart-wrap canvas {
+        max-width: 100%; height: auto !important;
+      }
+      .results-table {
+        margin-top: 8px;
+        max-height: 240px; overflow: auto;
+        border: 1px solid var(--border); border-radius: 8px;
+      }
+      .results-table table {
+        border-collapse: collapse; width: 100%;
+        font-size: 12px;
+      }
+      .results-table th, .results-table td {
+        padding: 6px 10px; border-bottom: 1px solid var(--border);
+        text-align: left; white-space: nowrap;
+      }
+      .results-table th {
+        background: var(--panel-2); position: sticky; top: 0;
+        font-weight: 600; color: var(--muted);
+      }
+
+      /* History drawer */
+      .history-drawer {
+        position: fixed; top: 0; right: 0; bottom: 0;
+        width: 380px; max-width: 90vw;
+        background: var(--panel); border-left: 1px solid var(--border);
+        box-shadow: -8px 0 30px rgba(0,0,0,0.4);
+        transform: translateX(100%);
+        transition: transform 0.2s ease;
+        display: flex; flex-direction: column;
+        z-index: 100;
+      }
+      .history-drawer.open { transform: translateX(0); }
+      .history-drawer header {
+        padding: 14px 16px; border-bottom: 1px solid var(--border);
+        display: flex; align-items: center; gap: 8px;
+      }
+      .history-drawer header h2 {
+        font-size: 14px; margin: 0; font-weight: 600;
+      }
+      .history-list {
+        flex: 1; overflow-y: auto; padding: 10px;
+        display: flex; flex-direction: column; gap: 8px;
+      }
+      .history-item {
+        background: var(--panel-2); border: 1px solid var(--border);
+        border-radius: 8px; padding: 10px 12px;
+        font-size: 12.5px; cursor: pointer;
+      }
+      .history-item:hover { border-color: var(--accent); }
+      .history-item .h-q {
+        color: var(--muted); margin-bottom: 4px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .history-item .h-sql {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px; color: #d9def0;
+        max-height: 60px; overflow: hidden;
+        white-space: pre-wrap;
+      }
 
       .composer {
         border-top: 1px solid var(--border);
@@ -176,8 +263,20 @@
           <div class="sub">Ask questions about e-commerce and customer support data in plain English.</div>
         </div>
         <div class="spacer"></div>
+        <span id="personaPill" class="pill" title="Demo row-level access control" style="display:none"><span class="dot"></span><span id="personaText"></span></span>
+        <button id="personaBtn" class="btn ghost" title="Try row-level access control">Persona</button>
+        <button id="historyBtn" class="btn ghost" title="Show query history">History</button>
         <button id="resetBtn" class="btn ghost">Reset</button>
       </header>
+
+      <aside id="historyDrawer" class="history-drawer">
+        <header>
+          <h2>Session query history</h2>
+          <span style="flex:1"></span>
+          <button id="historyCloseBtn" class="btn ghost">Close</button>
+        </header>
+        <div id="historyList" class="history-list"></div>
+      </aside>
 
       <div class="chat">
         <div id="messages" class="messages"></div>
@@ -203,13 +302,269 @@
       </footer>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
     <script>
       const $ = (sel) => document.querySelector(sel);
       const messagesEl = $("#messages");
       const inputEl = $("#input");
       const sendBtn = $("#sendBtn");
       const resetBtn = $("#resetBtn");
+      const historyBtn = $("#historyBtn");
+      const historyDrawer = $("#historyDrawer");
+      const historyCloseBtn = $("#historyCloseBtn");
+      const historyListEl = $("#historyList");
+      const personaBtn = $("#personaBtn");
+      const personaPill = $("#personaPill");
+      const personaText = $("#personaText");
       let busy = false;
+
+      async function refreshPersona() {
+        try {
+          const r = await fetch("/auth/persona");
+          const data = await r.json();
+          if (data.email) {
+            personaPill.style.display = "inline-flex";
+            personaPill.classList.add("ok");
+            personaText.textContent = `Scoped to: ${data.email}`;
+            personaBtn.textContent = "Switch / clear persona";
+          } else {
+            personaPill.style.display = "none";
+            personaBtn.textContent = "Persona";
+          }
+        } catch (e) { /* non-fatal */ }
+      }
+
+      async function choosePersona() {
+        const current = personaText.textContent.replace(/^Scoped to:\s*/, "");
+        const next = prompt(
+          "Demo: enter a customer email to scope queries to that user only " +
+          "(simulates row-level access control). Leave empty to clear.",
+          current || "alice.chen@example.com"
+        );
+        if (next === null) return;
+        const email = next.trim();
+        const r = await fetch("/auth/persona", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: email || null }),
+        });
+        if (!r.ok) {
+          alert("Could not set persona: " + (await r.text()));
+          return;
+        }
+        // Persona change forces a new conversation server-side; mirror that locally.
+        messagesEl.innerHTML = "";
+        history.length = 0;
+        renderHistory();
+        await refreshPersona();
+        greet();
+      }
+      personaBtn.addEventListener("click", choosePersona);
+
+      // Per-session query history (in-memory; cleared on Reset).
+      const history = [];
+
+      function downloadBlob(filename, mimeType, content) {
+        const blob = new Blob([content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+
+      function toCSV(columns, rows) {
+        const escape = (v) => {
+          if (v == null) return "";
+          const s = String(v);
+          if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+          return s;
+        };
+        const head = columns.map(escape).join(",");
+        const body = rows
+          .map((r) => columns.map((c) => escape(r[c])).join(","))
+          .join("\n");
+        return head + "\n" + body;
+      }
+
+      function pickChartableColumns(columns, rows) {
+        if (!rows.length) return null;
+        // We need one categorical (string) column and at least one numeric column.
+        const numeric = [];
+        let label = null;
+        for (const c of columns) {
+          const sample = rows.find((r) => r[c] != null);
+          if (sample == null) continue;
+          const v = sample[c];
+          if (typeof v === "number") {
+            numeric.push(c);
+          } else if (label === null && typeof v === "string") {
+            label = c;
+          }
+        }
+        if (label && numeric.length >= 1 && rows.length <= 40) {
+          return { label, numeric };
+        }
+        return null;
+      }
+
+      function renderChart(container, columns, rows) {
+        const pick = pickChartableColumns(columns, rows);
+        if (!pick) return false;
+        const canvas = document.createElement("canvas");
+        const wrap = document.createElement("div");
+        wrap.className = "chart-wrap";
+        wrap.appendChild(canvas);
+        container.appendChild(wrap);
+
+        const labels = rows.map((r) => r[pick.label]);
+        const datasets = pick.numeric.map((c, i) => ({
+          label: c,
+          data: rows.map((r) => Number(r[c])),
+          backgroundColor: i === 0
+            ? "rgba(52, 211, 153, 0.6)"
+            : "rgba(110, 123, 255, 0.6)",
+          borderColor: i === 0
+            ? "rgba(52, 211, 153, 1)"
+            : "rgba(110, 123, 255, 1)",
+          borderWidth: 1,
+        }));
+        // eslint-disable-next-line no-undef
+        new Chart(canvas, {
+          type: "bar",
+          data: { labels, datasets },
+          options: {
+            responsive: true,
+            plugins: { legend: { display: pick.numeric.length > 1 } },
+            scales: {
+              x: { ticks: { color: "#8b91a0" }, grid: { color: "#1b1e26" } },
+              y: { ticks: { color: "#8b91a0" }, grid: { color: "#1b1e26" } },
+            },
+          },
+        });
+        return true;
+      }
+
+      function renderResultsTable(container, columns, rows) {
+        if (!rows.length) return;
+        const wrap = document.createElement("div");
+        wrap.className = "results-table";
+        const table = document.createElement("table");
+        const thead = document.createElement("thead");
+        const headRow = document.createElement("tr");
+        for (const c of columns) {
+          const th = document.createElement("th");
+          th.textContent = c;
+          headRow.appendChild(th);
+        }
+        thead.appendChild(headRow); table.appendChild(thead);
+        const tbody = document.createElement("tbody");
+        for (const r of rows) {
+          const tr = document.createElement("tr");
+          for (const c of columns) {
+            const td = document.createElement("td");
+            const v = r[c];
+            td.textContent = v == null ? "" : String(v);
+            tr.appendChild(td);
+          }
+          tbody.appendChild(tr);
+        }
+        table.appendChild(tbody); wrap.appendChild(table);
+        container.appendChild(wrap);
+      }
+
+      function buildSqlPanel(q, idx, total, userQuestion) {
+        const det = document.createElement("details");
+        det.className = "sql-panel";
+        const sum = document.createElement("summary");
+        const label = total === 1 ? "View SQL & results" : `Query #${idx + 1}`;
+        sum.textContent = `${label}  ·  ${q.row_count} row${q.row_count === 1 ? "" : "s"}${q.truncated ? " (truncated)" : ""}`;
+        det.appendChild(sum);
+
+        const pre = document.createElement("pre");
+        pre.textContent = q.sql;
+        det.appendChild(pre);
+
+        // Result preview table (if rows came back) + actions.
+        if (q.rows && q.rows.length) {
+          renderChart(det, q.columns || [], q.rows);
+          renderResultsTable(det, q.columns || [], q.rows);
+
+          const actions = document.createElement("div");
+          actions.className = "actions";
+
+          const csvBtn = document.createElement("button");
+          csvBtn.textContent = "Download CSV";
+          csvBtn.addEventListener("click", () => {
+            const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+            downloadBlob(`result-${stamp}.csv`, "text/csv", toCSV(q.columns || [], q.rows));
+          });
+          actions.appendChild(csvBtn);
+
+          const jsonBtn = document.createElement("button");
+          jsonBtn.textContent = "Download JSON";
+          jsonBtn.addEventListener("click", () => {
+            const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+            downloadBlob(
+              `result-${stamp}.json`,
+              "application/json",
+              JSON.stringify({ sql: q.sql, columns: q.columns, rows: q.rows }, null, 2)
+            );
+          });
+          actions.appendChild(jsonBtn);
+
+          const copyBtn = document.createElement("button");
+          copyBtn.textContent = "Copy SQL";
+          copyBtn.addEventListener("click", () => {
+            navigator.clipboard.writeText(q.sql).then(() => {
+              copyBtn.textContent = "Copied!";
+              setTimeout(() => (copyBtn.textContent = "Copy SQL"), 1200);
+            });
+          });
+          actions.appendChild(copyBtn);
+
+          det.appendChild(actions);
+        }
+
+        // Push into history.
+        history.push({ ts: new Date(), userQuestion, query: q });
+        renderHistory();
+
+        return det;
+      }
+
+      function renderHistory() {
+        historyListEl.innerHTML = "";
+        if (!history.length) {
+          const empty = document.createElement("div");
+          empty.style.cssText = "color: var(--muted); padding: 16px; font-size: 12.5px;";
+          empty.textContent = "Your queries this session will appear here. They are kept in your browser only.";
+          historyListEl.appendChild(empty);
+          return;
+        }
+        for (const h of [...history].reverse()) {
+          const item = document.createElement("div");
+          item.className = "history-item";
+          const q = document.createElement("div");
+          q.className = "h-q";
+          q.textContent = `[${h.ts.toLocaleTimeString()}] ${h.userQuestion}`;
+          const sql = document.createElement("div");
+          sql.className = "h-sql";
+          sql.textContent = h.query.sql;
+          item.appendChild(q); item.appendChild(sql);
+          item.addEventListener("click", () => {
+            inputEl.value = h.userQuestion;
+            historyDrawer.classList.remove("open");
+            inputEl.focus();
+          });
+          historyListEl.appendChild(item);
+        }
+      }
+      renderHistory();
+
+      historyBtn.addEventListener("click", () => historyDrawer.classList.toggle("open"));
+      historyCloseBtn.addEventListener("click", () => historyDrawer.classList.remove("open"));
 
       function addMessage(role, text, extra) {
         const wrap = document.createElement("div");
@@ -221,18 +576,7 @@
 
         if (extra && extra.queries && extra.queries.length) {
           extra.queries.forEach((q, idx) => {
-            const det = document.createElement("details");
-            det.className = "sql-panel";
-            const sum = document.createElement("summary");
-            const label =
-              extra.queries.length === 1
-                ? "View SQL"
-                : `View SQL #${idx + 1}`;
-            sum.textContent = `${label}  ·  ${q.row_count} row${q.row_count === 1 ? "" : "s"}${q.truncated ? " (truncated)" : ""}`;
-            const pre = document.createElement("pre");
-            pre.textContent = q.sql;
-            det.appendChild(sum);
-            det.appendChild(pre);
+            const det = buildSqlPanel(q, idx, extra.queries.length, extra.userQuestion || "");
             wrap.appendChild(det);
           });
         }
@@ -272,7 +616,7 @@
             addMessage("system", `Error: ${data.detail || r.statusText}`);
             return;
           }
-          addMessage("bot", data.reply, { queries: data.queries });
+          addMessage("bot", data.reply, { queries: data.queries, userQuestion: text });
         } catch (err) {
           typing.remove();
           addMessage("system", `Network error: ${err.message}`);
@@ -286,6 +630,8 @@
       async function reset() {
         await fetch("/chat/reset", { method: "POST" });
         messagesEl.innerHTML = "";
+        history.length = 0;
+        renderHistory();
         greet();
       }
 
@@ -314,6 +660,7 @@
       });
 
       greet();
+      refreshPersona();
     </script>
   </body>
 </html>

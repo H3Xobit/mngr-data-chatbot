@@ -11,7 +11,6 @@ import pytest
 from services import query_service
 from services.query_service import UnsafeQueryError
 
-
 # ---------- Validator -------------------------------------------------------
 
 
