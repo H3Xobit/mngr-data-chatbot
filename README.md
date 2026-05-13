@@ -188,7 +188,7 @@ python -m db.seed
 uvicorn main:app --reload --port 8500
 ```
 
-Open <http://localhost:8500> and start chatting.
+Open <http://localhost:8002> and start chatting.
 
 > Port 8500 was chosen specifically to avoid collisions with anything you
 > might already have running (8000/8001 are common defaults for other dev
