@@ -515,7 +515,7 @@ Almost always one of these three things:
    the port, kill it or change `PORT` in `.env`.
 2. **Browser cache.** Your browser may have a cached copy of a
    previous app served on the same host:port. Hard-refresh
-   (Ctrl+Shift+R), or open <http://127.0.0.1:8500/> in an incognito
+   (Ctrl+Shift+R), or open <http://127.0.0.1:8002/> in an incognito
    window. `127.0.0.1` instead of `localhost` also dodges some DNS-level
    caching.
 3. **Windows port forwarding (WSL only).** Run
